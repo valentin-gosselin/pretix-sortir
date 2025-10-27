@@ -1,0 +1,42 @@
+{% extends "pretixcontrol/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% block title %}{% trans "Sortir!" %}{% endblock %}
+{% block content %}
+    <h1>
+        {% trans "Sortir! Settings" %}
+    </h1>
+
+    <form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% bootstrap_form form layout="control" %}
+
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">
+                {% trans "Save" %}
+            </button>
+        </div>
+    </form>
+
+    {% if stats %}
+        <div class="row">
+            <div class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">
+                            {% trans "Statistics" %}
+                        </h3>
+                    </div>
+                    <div class="panel-body">
+                        <dl class="dl-horizontal">
+                            <dt>{% trans "Events with Sortir!" %}</dt>
+                            <dd>{{ stats.events_count }}</dd>
+                            <dt>{% trans "Total usages" %}</dt>
+                            <dd>{{ stats.total_usages }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

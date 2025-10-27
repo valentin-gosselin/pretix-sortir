@@ -1,0 +1,43 @@
+{% load i18n %}
+{% load static %}
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h3>{% trans "Tarifs nécessitant une carte Sortir!" %}</h3>
+    </div>
+    <div class="card-body">
+        <p>{% trans "Cochez les tarifs qui nécessitent une vérification de carte Sortir! valide :" %}</p>
+        
+        <form method="post" action="{% url 'plugins:pretix_sortir:save-items-config' organizer=request.event.organizer.slug event=request.event.slug %}">
+            {% csrf_token %}
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;"></th>
+                        <th>{% trans "Tarif" %}</th>
+                        <th>{% trans "Prix" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item_data in items_data %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" 
+                                   name="requires_sortir" 
+                                   value="{{ item_data.id_str }}"
+                                   {% if item_data.requires_sortir %}checked{% endif %}
+                                   class="form-check-input">
+                        </td>
+                        <td>{{ item_data.name }}</td>
+                        <td>{{ item_data.price|floatformat:2 }} €</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            <button type="submit" class="btn btn-primary">
+                {% trans "Enregistrer" %}
+            </button>
+        </form>
+    </div>
+</div>

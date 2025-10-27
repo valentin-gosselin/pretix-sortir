@@ -1,0 +1,114 @@
+{% extends "pretixcontrol/event/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Utilisations Sortir!" %}{% endblock %}
+
+{% block content %}
+<h1>{% trans "Historique des utilisations Sortir!" %}</h1>
+
+{% if stats %}
+<div class="row">
+    <div class="col-md-3">
+        <div class="panel panel-default">
+            <div class="panel-body text-center">
+                <h3>{{ stats.total }}</h3>
+                <p>{% trans "Total" %}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="panel panel-success">
+            <div class="panel-body text-center">
+                <h3>{{ stats.validated }}</h3>
+                <p>{% trans "Validés" %}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="panel panel-info">
+            <div class="panel-body text-center">
+                <h3>{{ stats.used }}</h3>
+                <p>{% trans "Utilisés" %}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="panel panel-warning">
+            <div class="panel-body text-center">
+                <h3>{{ stats.cancelled }}</h3>
+                <p>{% trans "Annulés" %}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="table-responsive">
+    <table class="table table-striped table-condensed">
+        <thead>
+            <tr>
+                <th>{% trans "Date" %}</th>
+                <th>{% trans "Commande" %}</th>
+                <th>{% trans "Numéro" %}</th>
+                <th>{% trans "Article" %}</th>
+                <th>{% trans "Statut" %}</th>
+                <th>{% trans "ID APRAS" %}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for usage in usages %}
+            <tr>
+                <td>{{ usage.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+                <td>
+                    {% if usage.order %}
+                        <a href="{% url "control:event.order" event=request.event.slug organizer=request.event.organizer.slug code=usage.order.code %}">
+                            {{ usage.order.code }}
+                        </a>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>
+                    <code>***{{ usage.sortir_number_suffix }}</code>
+                </td>
+                <td>
+                    {{ usage.item.name }}
+                    {% if usage.variation %}
+                        <br><small class="text-muted">{{ usage.variation.value }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if usage.status == "validated" %}
+                        <span class="label label-success">{% trans "Validé" %}</span>
+                    {% elif usage.status == "used" %}
+                        <span class="label label-info">{% trans "Utilisé" %}</span>
+                    {% elif usage.status == "cancelled" %}
+                        <span class="label label-warning">{% trans "Annulé" %}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if usage.apras_request_id %}
+                        <code>{{ usage.apras_request_id }}</code>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" class="text-center text-muted">
+                    {% trans "Aucune utilisation pour le moment." %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if is_paginated %}
+<div class="text-center">
+    {% bootstrap_pagination page_obj %}
+</div>
+{% endif %}
+{% endblock %}

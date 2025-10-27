@@ -1,0 +1,52 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Configuration Sortir! pour" %} {{ item.name }}{% endblock %}
+
+{% block inside %}
+<h1>
+    {% trans "Configuration Sortir!" %}
+    <small>
+        {{ item.name }}
+        {% if variation %} - {{ variation.value }}{% endif %}
+    </small>
+</h1>
+
+<form action="" method="post" class="form-horizontal">
+    {% csrf_token %}
+
+    {% bootstrap_form_errors form %}
+
+    <fieldset>
+        <legend>{% trans "Tarif Sortir!" %}</legend>
+
+        <div class="panel panel-default">
+            <div class="panel-body">
+                <dl class="dl-horizontal">
+                    <dt>{% trans "Prix normal" %}</dt>
+                    <dd>
+                        {% if variation %}
+                            {{ variation.price|floatformat:2 }} €
+                        {% else %}
+                            {{ item.default_price|floatformat:2 }} €
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        {% bootstrap_field form.requires_sortir layout="control" %}
+        {% bootstrap_field form.sortir_price layout="control" %}
+    </fieldset>
+
+    <div class="form-group submit-group">
+        <button type="submit" class="btn btn-primary btn-save">
+            {% trans "Enregistrer" %}
+        </button>
+        <a href="{% url "plugins:pretix_sortir:event-settings" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default">
+            {% trans "Annuler" %}
+        </a>
+    </div>
+</form>
+{% endblock %}

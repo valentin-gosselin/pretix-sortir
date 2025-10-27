@@ -1,0 +1,57 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Sortir! - Configuration" %}{% endblock %}
+
+{% block inside %}
+<h1>{% trans "Configuration Sortir!" %}</h1>
+
+<form action="" method="post" class="form-horizontal">
+    {% csrf_token %}
+
+    {% if not organizer_configured %}
+    <div class="alert alert-warning">
+        <strong>{% trans "Attention !" %}</strong>
+        {% trans "L'API Sortir! n'est pas configurée au niveau de l'organisateur. Veuillez d'abord configurer les paramètres API dans les paramètres de l'organisateur." %}
+    </div>
+    {% endif %}
+
+    <fieldset>
+        <legend>{% trans "Tarifs nécessitant une carte Sortir!" %}</legend>
+        <p>{% trans "Cochez les tarifs qui nécessitent une vérification de carte Sortir! valide :" %}</p>
+        
+        <div class="table-responsive">
+            <table class="table table-condensed">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;"></th>
+                        <th>{% trans "Tarif" %}</th>
+                        <th>{% trans "Prix" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item_data in items_data %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" 
+                                   name="requires_sortir" 
+                                   value="{{ item_data.id_str }}"
+                                   {% if item_data.requires_sortir %}checked{% endif %}
+                                   class="form-check-input">
+                        </td>
+                        <td>{{ item_data.name }}</td>
+                        <td>{{ item_data.price|floatformat:2 }} €</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </fieldset>
+
+    <div class="form-group submit-group">
+        <button type="submit" class="btn btn-primary btn-save">
+            {% trans "Enregistrer" %}
+        </button>
+    </div>
+</form>
+{% endblock %}
