@@ -182,14 +182,10 @@ def final_sortir_verification(sender, order, **kwargs):
             # Continue sans bloquer si pas de config (ne devrait pas arriver)
             return
 
-        # Détermine l'URL API
-        api_url = org_settings.api_url_production if org_settings.api_mode == 'production' else org_settings.api_url_test
-
         # Client API pour revalidation
         api_client = SortirAPIClient(
             api_key=org_settings.api_token,
-            api_mode=org_settings.api_mode,
-            api_url=api_url
+            api_url=org_settings.api_url
         )
 
         # Compte combien de positions nécessitent Sortir

@@ -20,15 +20,14 @@ if not any(isinstance(f, SortirSecurityFilter) for f in logger.filters):
 class SortirAPIClient:
     """Client pour communiquer avec l'API APRAS"""
 
-    def __init__(self, api_key: str, api_mode: str = 'test', api_url: str = None):
+    def __init__(self, api_key: str, api_url: str = None):
         self.api_key = api_key
-        self.api_mode = api_mode
 
         # Utilise l'URL fournie dans les paramètres
         if api_url:
             self.base_url = api_url.rstrip('/')  # Enlève le / final si présent
         else:
-            # Fallback pour compatibilité
+            # Fallback si pas d'URL configurée
             self.base_url = ''
             logger.warning("Aucune URL d'API configurée")
 

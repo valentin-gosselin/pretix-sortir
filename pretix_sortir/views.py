@@ -308,17 +308,10 @@ class SortirCardValidationView(View):
                         'error': 'API Sortir non configurée'
                     })
 
-            # Détermine l'URL selon le mode
-            if org_settings.api_mode == 'production':
-                api_url = org_settings.api_url_production
-            else:
-                api_url = org_settings.api_url_test
-
             # Crée le client API et vérifie l'éligibilité
             api_client = SortirAPIClient(
                 api_key=org_settings.api_token,
-                api_mode=org_settings.api_mode,
-                api_url=api_url
+                api_url=org_settings.api_url
             )
 
             is_eligible = api_client.verify_eligibility(clean_card_number)

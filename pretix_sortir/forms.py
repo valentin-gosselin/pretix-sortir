@@ -24,9 +24,7 @@ class SortirOrganizerSettingsForm(forms.ModelForm):
     class Meta:
         model = SortirOrganizerSettings
         fields = [
-            'api_mode',
-            'api_url_test',
-            'api_url_production',
+            'api_url',
             'api_token',
             'api_timeout',
             'prefill_attendee',
@@ -35,11 +33,7 @@ class SortirOrganizerSettingsForm(forms.ModelForm):
             'audit_retention_days'
         ]
         widgets = {
-            'api_url_test': forms.URLInput(attrs={
-                'placeholder': _("Ex: http://test.sortir.example.com"),
-                'class': 'form-control'
-            }),
-            'api_url_production': forms.URLInput(attrs={
+            'api_url': forms.URLInput(attrs={
                 'placeholder': _("Ex: https://api.sortir.example.com"),
                 'class': 'form-control'
             }),
@@ -48,7 +42,6 @@ class SortirOrganizerSettingsForm(forms.ModelForm):
                 'autocomplete': 'off',
                 'class': 'form-control'
             }),
-            'api_mode': forms.RadioSelect(),
             'api_timeout': forms.NumberInput(attrs={
                 'min': 1,
                 'max': 10,
@@ -56,23 +49,21 @@ class SortirOrganizerSettingsForm(forms.ModelForm):
             })
         }
         help_texts = {
-            'api_mode': _("Test: utilise l'URL de test | Production: utilise l'URL de production"),
-            'api_url_test': _("URL de l'API de test fournie par l'APRAS"),
-            'api_url_production': _("URL de l'API de production fournie par l'APRAS (après validation)"),
+            'api_url': _("URL de l'API APRAS (test ou production)"),
             'api_token': _("Token d'authentification fourni par l'APRAS"),
             'api_timeout': _("Temps d'attente maximal pour la vérification API (recommandé: 2 secondes)"),
             'prefill_attendee': _("Remplit automatiquement le nom du participant si disponible"),
             'release_on_cancel': _("Permet de réutiliser un numéro après annulation d'une commande")
         }
 
-    def clean_api_url_production(self):
+    def clean_api_url(self):
         """
-        Valide l'URL de production (Sécurité PHASE 1 - Points 4 & 5).
+        Valide l'URL de l'API (Sécurité PHASE 1 - Points 4 & 5).
 
         - En production (DEBUG=False), seules les URLs HTTPS sont acceptées
         - Seuls les domaines APRAS whitelistés sont autorisés
         """
-        url = self.cleaned_data.get('api_url_production', '').strip()
+        url = self.cleaned_data.get('api_url', '').strip()
 
         if not url:
             return url
@@ -90,34 +81,6 @@ class SortirOrganizerSettingsForm(forms.ModelForm):
         domain = parsed.netloc.lower()
 
         # Retire le port si présent (ex: example.com:443 -> example.com)
-        if ':' in domain:
-            domain = domain.split(':')[0]
-
-        # Si une whitelist est configurée, vérifier le domaine
-        if ALLOWED_APRAS_DOMAINS and domain not in ALLOWED_APRAS_DOMAINS:
-            raise ValidationError(
-                _("Domaine non autorisé. Veuillez utiliser un domaine autorisé.")
-            )
-
-        return url
-
-    def clean_api_url_test(self):
-        """
-        Valide l'URL de test (Sécurité PHASE 1 - Point 5).
-
-        Seuls les domaines APRAS whitelistés sont autorisés.
-        """
-        url = self.cleaned_data.get('api_url_test', '').strip()
-
-        if not url:
-            return url
-
-        # Validation du domaine (whitelist APRAS)
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-
-        # Retire le port si présent
         if ':' in domain:
             domain = domain.split(':')[0]
 

@@ -36,29 +36,11 @@ class SortirOrganizerSettings(LoggedModel):
         help_text=_('Automatiquement activé quand le plugin est installé')
     )
 
-    api_mode = models.CharField(
-        max_length=20,
-        choices=[
-            ('production', _('Production')),
-            ('test', _('Test'))
-        ],
-        default='test',
-        verbose_name=_('Mode API'),
-        help_text=_('Choisir entre l\'environnement de production ou de test')
-    )
-
-    api_url_production = models.URLField(
+    api_url = models.URLField(
         blank=True,
         default='',
-        verbose_name=_('URL API Production'),
-        help_text=_('URL de l\'API APRAS en production (fournie par l\'APRAS après validation)')
-    )
-
-    api_url_test = models.URLField(
-        blank=True,
-        default='',
-        verbose_name=_('URL API Test'),
-        help_text=_('URL de l\'API APRAS de test (fournie par l\'APRAS pour les tests)')
+        verbose_name=_('URL API Sortir'),
+        help_text=_('URL de l\'API APRAS (fournie par l\'APRAS)')
     )
 
     api_token = EncryptedTextField(
@@ -117,13 +99,6 @@ class SortirOrganizerSettings(LoggedModel):
         if not self.salt:
             self.salt = get_random_string(50)
         super().save(*args, **kwargs)
-
-    @property
-    def api_base_url(self):
-        """Retourne l'URL API active selon le mode."""
-        if self.api_mode == 'production':
-            return self.api_url_production
-        return self.api_url_test
 
 
 class SortirEventSettings(models.Model):
