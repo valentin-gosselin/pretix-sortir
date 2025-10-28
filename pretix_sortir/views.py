@@ -224,7 +224,7 @@ class SortirCardValidationView(View):
         """Valide un numéro de carte via AJAX"""
         import json
         from django.http import JsonResponse
-        from .api_client import SortirAPIClient
+        from .api import APRASClient
         from django_scopes import scopes_disabled
         from django.core.cache import cache
 
@@ -309,12 +309,13 @@ class SortirCardValidationView(View):
                     })
 
             # Crée le client API et vérifie l'éligibilité
-            api_client = SortirAPIClient(
-                api_key=org_settings.api_token,
-                api_url=org_settings.api_url
+            api_client = APRASClient(
+                base_url=org_settings.api_url,
+                token=org_settings.api_token,
+                timeout=org_settings.api_timeout
             )
 
-            is_eligible = api_client.verify_eligibility(clean_card_number)
+            is_eligible, result = api_client.verify_rights(clean_card_number)
 
             if is_eligible:
                 # VÉRIFICATION ANTI-FRAUDE (PHASE 1 - Point 3)
@@ -411,13 +412,15 @@ class SortirCardValidationView(View):
                         logger.info(f"[Sortir] Supprimé {deleted} ancien(s) pending de cette session pour carte ***{clean_card_number[-4:]}")
 
                 # Crée un SortirUsage en statut 'pending' (sera validé à order_placed)
+                # Le service_key est retourné par l'API et sera utilisé pour le grant
                 usage = SortirUsage.objects.create(
                     event=event,
                     sortir_number_hash=card_hash,
                     sortir_number_suffix=clean_card_number[-4:],
                     status='pending',
                     validated_at=timezone.now(),
-                    session_id=session_id  # Stocke le session_id pour ignorer les corrections (RGPD-compliant)
+                    session_id=session_id,  # Stocke le session_id pour ignorer les corrections (RGPD-compliant)
+                    service_key=result.key  # Stocke la clé de service pour le POST grant ultérieur
                 )
 
                 logger.info(f"[Sortir] SortirUsage créé (ID: {usage.id}) pour carte ***{clean_card_number[-4:]}")
@@ -454,6 +457,9 @@ class SortirCardValidationView(View):
                     'message': 'Carte valide et éligible'
                 })
             else:
+                # result contient le message d'erreur de l'API
+                error_message = str(result) if result else 'Carte non éligible, expirée ou inconnue'
+
                 # Audit trail échec (PHASE 2 - Point 9)
                 from .models import SortirAuditLog
                 SortirAuditLog.log(
@@ -465,12 +471,12 @@ class SortirCardValidationView(View):
                     salt=org_settings.salt,
                     ip_address=ip_address,
                     user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                    message='Carte non éligible, expirée ou inconnue'
+                    message=f'Validation échouée: {error_message}'
                 )
 
                 return JsonResponse({
                     'valid': False,
-                    'error': 'Carte non éligible, expirée ou inconnue'
+                    'error': error_message
                 })
 
         except json.JSONDecodeError:
@@ -494,6 +500,8 @@ class SortirCleanupSessionView(View):
     """
     def post(self, request, *args, **kwargs):
         try:
+            from pretix.base.models import Event, Organizer
+
             # Récupère les paramètres
             organizer = get_object_or_404(Organizer, slug=kwargs['organizer'])
             event = get_object_or_404(Event, organizer=organizer, slug=kwargs['event'])

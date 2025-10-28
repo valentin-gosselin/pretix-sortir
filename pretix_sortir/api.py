@@ -6,6 +6,7 @@ Ce module gère la communication avec l'API APRAS pour:
 - Enregistrer une demande après validation d'une commande
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -23,6 +24,13 @@ from urllib3.util.retry import Retry
 
 
 logger = logging.getLogger('pretix.plugins.sortir')
+
+# Applique les filtres de redaction des logs (Sécurité)
+from .logging_filters import SensitiveDataFilter, SortirSecurityFilter
+if not any(isinstance(f, SensitiveDataFilter) for f in logger.filters):
+    logger.addFilter(SensitiveDataFilter())
+if not any(isinstance(f, SortirSecurityFilter) for f in logger.filters):
+    logger.addFilter(SortirSecurityFilter())
 
 
 class APRASErrorCode(Enum):
@@ -102,8 +110,9 @@ class APRASClient:
         self.session.mount("http://", adapter)
 
         # Headers par défaut
+        # NOTE: L'API APRAS utilise le token directement sans "Bearer" (testé et vérifié)
         self.session.headers.update({
-            'Authorization': f'Bearer {token}',
+            'Authorization': token,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
@@ -126,6 +135,11 @@ class APRASClient:
     def _close_circuit_breaker(self):
         """Ferme le circuit breaker."""
         cache.delete('sortir_api_circuit_breaker')
+
+    @staticmethod
+    def hash_card_number(card_number: str) -> str:
+        """Hash le numéro de carte avec SHA-256 pour le stockage sécurisé"""
+        return hashlib.sha256(card_number.encode()).hexdigest()
 
     def verify_rights(self, card_number: str) -> Tuple[bool, Union[ServiceKey, str]]:
         """
@@ -162,25 +176,17 @@ class APRASClient:
                 # Succès - droits valides
                 self._close_circuit_breaker()
 
-                data = response.json()
+                # Selon la doc APRAS, le GET retourne la clé de service en STRING direct (pas JSON)
+                # Réponse : clé de service (string)
+                service_key_value = response.text.strip()
+
                 service_key = ServiceKey(
-                    key=data.get('cle_service', ''),
+                    key=service_key_value,
                     created_at=datetime.now(),
                     card_number_suffix=card_number[-4:]
                 )
 
-                # Extraction des infos inscrit si disponibles
-                if 'inscrit' in data:
-                    inscrit = InscritInfo(
-                        id=data['inscrit'].get('id'),
-                        nom=data['inscrit'].get('nom', ''),
-                        prenom=data['inscrit'].get('prenom', ''),
-                        date_naissance=data['inscrit'].get('date_naissance')
-                    )
-                    # Stocker temporairement en cache pour pré-remplissage
-                    cache.set(f"sortir_inscrit_{card_number[-4:]}", inscrit, 600)
-
-                logger.info(f"Droits valides pour carte ***{card_number[-4:]}")
+                logger.info(f"Droits valides pour carte ***{card_number[-4:]} - service_key reçu: {len(service_key_value)} caractères")
                 return True, service_key
 
             elif response.status_code == APRASErrorCode.UNAUTHORIZED.value:

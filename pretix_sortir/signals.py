@@ -9,7 +9,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
-from pretix.base.signals import validate_cart_addons, order_placed, order_approved, validate_cart
+from pretix.base.signals import validate_cart_addons, order_placed, order_approved, order_paid, validate_cart
 from pretix.presale.signals import html_head, item_description
 
 from .models import SortirItemConfig, SortirEventSettings
@@ -159,7 +159,7 @@ def final_sortir_verification(sender, order, **kwargs):
     """
     from django.core.exceptions import ValidationError
     from django_scopes import scopes_disabled
-    from .api_client import SortirAPIClient
+    from .api import APRASClient
     from .models import SortirOrganizerSettings, SortirUsage
 
     logger.info(f"[Sortir] Vérification finale commande {order.code}")
@@ -183,9 +183,10 @@ def final_sortir_verification(sender, order, **kwargs):
             return
 
         # Client API pour revalidation
-        api_client = SortirAPIClient(
-            api_key=org_settings.api_token,
-            api_url=org_settings.api_url
+        api_client = APRASClient(
+            base_url=org_settings.api_url,
+            token=org_settings.api_token,
+            timeout=org_settings.api_timeout
         )
 
         # Compte combien de positions nécessitent Sortir
@@ -300,5 +301,109 @@ def final_sortir_verification(sender, order, **kwargs):
             except SortirItemConfig.DoesNotExist:
                 # Pas de config Sortir pour cet item
                 continue
+
+
+@receiver(order_paid, dispatch_uid='sortir_order_paid_grant')
+def order_paid_handler(sender, **kwargs):
+    """
+    Handler appelé lorsqu'une commande est payée (order_paid signal).
+
+    Envoie les appels POST /api/partners/grant à l'API APRAS pour chaque carte validée.
+    C'est à ce moment que l'APRAS enregistre la vente pour sa traçabilité.
+
+    IMPORTANT : Ce n'est PAS dans order_placed qu'on fait le grant, mais dans order_paid,
+    car l'APRAS doit être notifié uniquement pour les paiements confirmés.
+    """
+    from django_scopes import scopes_disabled
+    from .api import APRASClient
+    from .models import SortirOrganizerSettings, SortirUsage
+
+    order = kwargs['order']
+    logger.info(f"[Sortir] order_paid_handler appelé pour commande {order.code}")
+
+    with scopes_disabled():
+        # Récupère tous les SortirUsage de cette commande avec status='validated'
+        usages = SortirUsage.objects.filter(
+            order=order,
+            status='validated'
+        ).select_related('event', 'order')
+
+        if not usages.exists():
+            logger.info(f"[Sortir] Aucun SortirUsage à notifier pour commande {order.code}")
+            return
+
+        # Récupère les settings de l'organisateur
+        try:
+            org_settings = SortirOrganizerSettings.objects.get(
+                organizer=order.event.organizer,
+                api_enabled=True
+            )
+        except SortirOrganizerSettings.DoesNotExist:
+            logger.error(f"[Sortir] Pas de configuration API pour l'organisateur {order.event.organizer}")
+            return
+
+        # Crée le client API
+        api_client = APRASClient(
+            base_url=org_settings.api_url,
+            token=org_settings.api_token,
+            timeout=org_settings.api_timeout
+        )
+
+        # Pour chaque usage, envoie le grant à l'APRAS
+        for usage in usages:
+            if not usage.service_key:
+                logger.error(f"[Sortir] SortirUsage {usage.id} sans service_key - impossible d'envoyer le grant")
+
+                # Audit trail erreur
+                from .models import SortirAuditLog
+                SortirAuditLog.log(
+                    action='grant_failed',
+                    severity='error',
+                    event=order.event,
+                    organizer=order.event.organizer,
+                    order=order,
+                    message=f'service_key manquant pour SortirUsage {usage.id}'
+                )
+                continue
+
+            # Appel POST /api/partners/grant
+            success, result = api_client.post_grant(service_key=usage.service_key)
+
+            if success:
+                # Grant réussi - stocke l'ID de la demande APRAS
+                usage.apras_request_id = str(result.id)
+                usage.status = 'used'  # Marque comme utilisé
+                usage.save(update_fields=['apras_request_id', 'status'])
+
+                logger.info(f"[Sortir] Grant envoyé avec succès pour SortirUsage {usage.id} - APRAS request_id: {result.id}")
+
+                # Audit trail succès
+                from .models import SortirAuditLog
+                SortirAuditLog.log(
+                    action='grant_success',
+                    severity='info',
+                    event=order.event,
+                    organizer=order.event.organizer,
+                    order=order,
+                    message=f'Grant envoyé avec succès (APRAS request_id: {result.id}, SortirUsage: {usage.id})'
+                )
+            else:
+                # Grant échoué - garde en status='validated' pour retry ultérieur
+                error_message = str(result) if result else "Erreur inconnue"
+                logger.error(f"[Sortir] Échec grant pour SortirUsage {usage.id} : {error_message}")
+
+                # Audit trail échec
+                from .models import SortirAuditLog
+                SortirAuditLog.log(
+                    action='grant_failed',
+                    severity='error',
+                    event=order.event,
+                    organizer=order.event.organizer,
+                    order=order,
+                    message=f'Échec grant pour SortirUsage {usage.id} : {error_message}'
+                )
+
+                # TODO: Implémenter un système de retry automatique pour les grants échoués
+                # Pour l'instant, l'usage reste en status='validated' pour retry manuel
 
     logger.info(f"[Sortir] Validation finale OK pour commande {order.code}")
