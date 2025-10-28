@@ -1,4 +1,5 @@
 // JavaScript pour le plugin Sortir!
+// Version: 2025-10-28-15:30 - Fix: suppression des champs quand quantité diminue
 
 // FONCTION GLOBALE DE BLOCAGE - Intercepte TOUS les clics
 window.sortirBlockerActive = false;
@@ -233,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 savedValues[parseInt(idx)] = {
                                     value: storedCards[idx].number,
                                     valid: 'true',
-                                    validationMsg: '<i class="fa fa-check-circle"></i> Carte valide et éligible (restaurée)'
+                                    validationMsg: '<i class="fa fa-check-circle"></i> Carte valide et éligible'
                                 };
                             }
                         }
@@ -252,8 +253,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
 
                         // ÉTAPE 2 : Vérifie quels champs existent RÉELLEMENT par leur ID
+                        // IMPORTANT : On vérifie TOUS les champs possibles (jusqu'à 20) pour détecter ceux à supprimer
                         var existingFieldsMap = {};
-                        for (var i = 1; i <= quantity; i++) {
+                        for (var i = 1; i <= 20; i++) {
                             var cardFieldId = itemKey + '_' + i;
                             var existingInput = document.getElementById('sortir_card_' + cardFieldId);
                             if (existingInput) {
@@ -263,8 +265,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         var existingCount = Object.keys(existingFieldsMap).length;
 
-                        // Ajoute SEULEMENT les champs manquants
-                        if (quantity > existingCount) {
+                        // Ajoute SEULEMENT les champs manquants (entre 1 et quantity)
+                        if (quantity > 0) {
                             for (var i = 1; i <= quantity; i++) {
                                 if (!existingFieldsMap[i]) {
                                     // Ce champ n'existe pas, on le crée
@@ -274,17 +276,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         }
 
-                        // Supprime les champs en trop (au-delà de la quantité)
-                        if (quantity < existingCount) {
-                            for (var i = quantity + 1; i <= 20; i++) {  // Max 20
-                                var cardFieldId = itemKey + '_' + i;
-                                var fieldToRemove = document.getElementById('sortir_card_' + cardFieldId);
-                                if (fieldToRemove) {
-                                    var containerToRemove = fieldToRemove.closest('.sortir-field');
-                                    if (containerToRemove) {
-                                        containerToRemove.remove();
-                                    }
-                                }
+                        // Supprime les champs au-delà de la quantité demandée
+                        for (var i = quantity + 1; i <= 20; i++) {
+                            if (existingFieldsMap[i]) {
+                                // Ce champ existe mais ne devrait plus : on le supprime
+                                existingFieldsMap[i].remove();
                             }
                         }
 
@@ -402,29 +398,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fonction de validation via API
     function validateCardWithAPI(cardNumber, validationDiv, input) {
-        // VÉRIFICATION ANTI-DOUBLON DANS LA MÊME COMMANDE
-        // Vérifie que ce numéro n'est pas déjà utilisé dans un autre champ
-        var allSortirInputs = document.querySelectorAll('.sortir-card-input[required]');
-        var duplicateFound = false;
-
-        allSortirInputs.forEach(function(otherInput) {
-            if (otherInput !== input && otherInput.value === cardNumber) {
-                duplicateFound = true;
-            }
-        });
-
-        if (duplicateFound) {
-            validationDiv.innerHTML = '<i class="fa fa-times-circle"></i> Ce numéro de carte est déjà utilisé dans cette commande';
-            validationDiv.className = 'sortir-validation error';
-            input.setAttribute('data-valid', 'false');
-
-            // Met à jour l'état des boutons
-            if (globalCheckSortirState) {
-                globalCheckSortirState();
-            }
-            return; // Stop la validation
-        }
-
         // Affiche un loading
         validationDiv.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Vérification en cours...';
         validationDiv.className = 'sortir-validation loading';
@@ -440,61 +413,39 @@ document.addEventListener('DOMContentLoaded', function() {
         var organizer = pathParts[1];
         var event = pathParts[2];
         var validateUrl = '/' + organizer + '/' + event + '/sortir/validate/';
+        var cleanupUrl = '/' + organizer + '/' + event + '/sortir/cleanup-session/';
 
-        // Prépare les données
-        var requestData = {
-            card_number: cardNumber
-        };
+        // ÉTAPE 1: Nettoie d'abord les cartes "pending" de cette session avant validation
+        // Cela permet de revalider une carte qu'on vient de supprimer/retaper
+        var itemKey = input.dataset.item;
+        var sessionId = sessionStorage.getItem(SESSION_ID_KEY);
 
-        // Fait l'appel AJAX
-        fetch(validateUrl, {
+        fetch(cleanupUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''
             },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify({
+                session_id: sessionId,
+                card_number: cardNumber  // Nettoie spécifiquement cette carte
+            })
         })
         .then(function(response) {
             return response.json();
         })
-        .then(function(data) {
-            if (data.valid) {
-                validationDiv.innerHTML = '<i class="fa fa-check-circle"></i> Carte valide et éligible';
-                validationDiv.className = 'sortir-validation success';
-                input.setAttribute('data-valid', 'true');
-
-                // Sauvegarde le numéro validé en sessionStorage ET localement
-                var itemKey = input.dataset.item;
-                var index = input.dataset.index;
-                saveValidatedCard(itemKey, index, cardNumber);
-                saveCardToSession(cardNumber, itemKey);
-
-                // Vérifie si toutes les cartes sont validées
-                var allValid = true;
-                document.querySelectorAll('.sortir-card-input[required]').forEach(function(inp) {
-                    if (inp.getAttribute('data-valid') !== 'true') {
-                        allValid = false;
-                    }
-                });
-
-                if (allValid) {
-                    window.sortirBlockerActive = true; // Désactive le blocage global car tout est OK
-
-                }
-            } else {
-                validationDiv.innerHTML = '<i class="fa fa-times-circle"></i> ' + (data.error || 'Carte non éligible');
-                validationDiv.className = 'sortir-validation error';
-                input.setAttribute('data-valid', 'false');
-                window.sortirBlockerActive = false; // Réactive le blocage
-            }
-
-            // CRUCIAL : Met à jour l'état des boutons après validation
-            if (globalCheckSortirState) {
-                setTimeout(globalCheckSortirState, 100);
-            }
+        .then(function(cleanupData) {
+            // ÉTAPE 2: Après le cleanup, lance la validation
+            return validateCardWithBackend(cardNumber, validateUrl);
         })
-        .catch(function() {
+        .catch(function(err) {
+            // Si le cleanup échoue, continue quand même avec la validation
+            return validateCardWithBackend(cardNumber, validateUrl);
+        })
+        .then(function(data) {
+            handleValidationResponse(data, cardNumber, validationDiv, input, itemKey);
+        })
+        .catch(function(err) {
             validationDiv.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Erreur de vérification';
             validationDiv.className = 'sortir-validation error';
             input.setAttribute('data-valid', 'false');
@@ -504,6 +455,63 @@ document.addEventListener('DOMContentLoaded', function() {
                 setTimeout(globalCheckSortirState, 100);
             }
         });
+    }
+
+    // Fonction helper pour appeler l'API de validation
+    function validateCardWithBackend(cardNumber, validateUrl) {
+        // Récupère le session_id depuis sessionStorage (RGPD-compliant)
+        var sessionId = sessionStorage.getItem(SESSION_ID_KEY) || '';
+
+        return fetch(validateUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''
+            },
+            body: JSON.stringify({
+                card_number: cardNumber,
+                session_id: sessionId  // Envoie le session_id pour gérer les corrections
+            })
+        })
+        .then(function(response) {
+            return response.json();
+        });
+    }
+
+    // Fonction helper pour gérer la réponse de validation
+    function handleValidationResponse(data, cardNumber, validationDiv, input, itemKey) {
+        if (data.valid) {
+            validationDiv.innerHTML = '<i class="fa fa-check-circle"></i> Carte valide et éligible';
+            validationDiv.className = 'sortir-validation success';
+            input.setAttribute('data-valid', 'true');
+
+            // Sauvegarde le numéro validé en sessionStorage ET localement
+            var index = input.dataset.index;
+            saveValidatedCard(itemKey, index, cardNumber);
+            saveCardToSession(cardNumber, itemKey);
+
+            // Vérifie si toutes les cartes sont validées
+            var allValid = true;
+            document.querySelectorAll('.sortir-card-input[required]').forEach(function(inp) {
+                if (inp.getAttribute('data-valid') !== 'true') {
+                    allValid = false;
+                }
+            });
+
+            if (allValid) {
+                window.sortirBlockerActive = true; // Désactive le blocage global car tout est OK
+            }
+        } else {
+            validationDiv.innerHTML = '<i class="fa fa-times-circle"></i> ' + (data.error || 'Carte non éligible');
+            validationDiv.className = 'sortir-validation error';
+            input.setAttribute('data-valid', 'false');
+            window.sortirBlockerActive = false; // Réactive le blocage
+        }
+
+        // CRUCIAL : Met à jour l'état des boutons après validation
+        if (globalCheckSortirState) {
+            setTimeout(globalCheckSortirState, 100);
+        }
     }
 
     // Fonction pour sauvegarder le numéro validé en session
@@ -536,8 +544,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 validationDiv.className = 'sortir-validation text-muted';
                 input.setAttribute('data-valid', 'false');
             } else if (cleanValue.length === 10) {
-                // Appel API automatique quand on atteint 10 chiffres
-                validateCardWithAPI(cleanValue, validationDiv, input);
+                // VÉRIFICATION ANTI-DOUBLON seulement au 10ème chiffre
+                // Vérifie que ce numéro n'est pas déjà utilisé dans un AUTRE champ
+                var allSortirInputs = document.querySelectorAll('.sortir-card-input[required]');
+                var duplicateFound = false;
+
+                allSortirInputs.forEach(function(otherInput) {
+                    if (otherInput !== input && otherInput.value === cleanValue) {
+                        duplicateFound = true;
+                    }
+                });
+
+                if (duplicateFound) {
+                    validationDiv.innerHTML = '<i class="fa fa-times-circle"></i> Ce numéro de carte est déjà utilisé dans cette commande';
+                    validationDiv.className = 'sortir-validation error';
+                    input.setAttribute('data-valid', 'false');
+                } else {
+                    // Pas de doublon : appel API automatique
+                    validateCardWithAPI(cleanValue, validationDiv, input);
+                }
             }
 
             // Met à jour l'état des boutons à chaque saisie (avec délai pour éviter surcharge)

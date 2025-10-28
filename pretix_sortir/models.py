@@ -290,6 +290,15 @@ class SortirUsage(models.Model):
         verbose_name=_('Date d\'utilisation')
     )
 
+    # Session ID pour identifier les corrections (RGPD-compliant, pas d'IP)
+    session_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name=_('ID de session'),
+        help_text=_('Identifiant anonyme de session pour gérer les corrections')
+    )
+
     # ID de demande APRAS après POST
     apras_request_id = models.CharField(
         max_length=100,

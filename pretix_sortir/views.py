@@ -6,7 +6,7 @@ import json
 import logging
 from django.contrib import messages
 from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -258,9 +258,10 @@ class SortirCardValidationView(View):
         cache.set(rate_limit_key, attempts + 1, 300)
 
         try:
-            # Récupère le numéro de carte
+            # Récupère le numéro de carte et le session_id
             data = json.loads(request.body)
             card_number = data.get('card_number', '').strip()
+            session_id = data.get('session_id', '').strip()  # ID anonyme de session (RGPD-compliant)
 
             if not card_number:
                 return JsonResponse({
@@ -354,12 +355,25 @@ class SortirCardValidationView(View):
                 ).select_related('order')
 
                 # Filtre pour ne garder que les usages avec commandes valides
+                # IMPORTANT : On ignore les 'pending' de la MÊME SESSION (< 5 min)
+                # car c'est la même personne qui corrige son numéro (RGPD-compliant : pas d'IP stockée)
+                from datetime import timedelta
+                recent_threshold = timezone.now() - timedelta(minutes=5)
+
                 valid_existing_usage = None
                 for usage in existing_usages:
                     # Si pas de commande associée, c'est un usage 'pending' récent (< 10 min)
                     if not usage.order:
-                        valid_existing_usage = usage
-                        break
+                        # NOUVEAU : Ignore les pending de la MÊME SESSION récents (< 5 min)
+                        # Si session_id match ET récent : c'est la même personne qui corrige
+                        if session_id and usage.session_id == session_id and usage.created_at >= recent_threshold:
+                            age_seconds = (timezone.now() - usage.created_at).total_seconds()
+                            logger.info(f"[Sortir] Carte ***{clean_card_number[-4:]} : pending ignoré (même session, créé il y a {age_seconds:.0f}s)")
+                            continue
+                        # Sinon : pending d'une autre session ou trop vieux → on bloque
+                        else:
+                            valid_existing_usage = usage
+                            break
                     # Si commande associée, vérifie son statut
                     elif usage.order.status not in [Order.STATUS_CANCELED, Order.STATUS_EXPIRED]:
                         # Commande valide (pending ou paid)
@@ -388,13 +402,29 @@ class SortirCardValidationView(View):
                         'error': 'Cette carte a déjà été utilisée pour cet événement'
                     })
 
+                # AVANT de créer un nouveau pending, supprime les anciens pending de cette session pour cette carte
+                # Cela évite les violations de contrainte unique
+                if session_id:
+                    old_pending_same_session = SortirUsage.objects.filter(
+                        event=event,
+                        sortir_number_hash=card_hash,
+                        status='pending',
+                        order__isnull=True,
+                        session_id=session_id
+                    )
+                    deleted = old_pending_same_session.count()
+                    if deleted > 0:
+                        old_pending_same_session.delete()
+                        logger.info(f"[Sortir] Supprimé {deleted} ancien(s) pending de cette session pour carte ***{clean_card_number[-4:]}")
+
                 # Crée un SortirUsage en statut 'pending' (sera validé à order_placed)
                 usage = SortirUsage.objects.create(
                     event=event,
                     sortir_number_hash=card_hash,
                     sortir_number_suffix=clean_card_number[-4:],
                     status='pending',
-                    validated_at=timezone.now()
+                    validated_at=timezone.now(),
+                    session_id=session_id  # Stocke le session_id pour ignorer les corrections (RGPD-compliant)
                 )
 
                 logger.info(f"[Sortir] SortirUsage créé (ID: {usage.id}) pour carte ***{clean_card_number[-4:]}")
@@ -478,6 +508,7 @@ class SortirCleanupSessionView(View):
             # Parse le JSON du body
             body_data = json.loads(request.body.decode('utf-8'))
             session_id = body_data.get('session_id')
+            card_number = body_data.get('card_number')  # Optionnel : nettoyer une carte spécifique
 
             if not session_id:
                 return JsonResponse({
@@ -489,21 +520,30 @@ class SortirCleanupSessionView(View):
             ip_address = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or \
                         request.META.get('REMOTE_ADDR', '')
 
-            # Nettoie TOUS les SortirUsage pending pour cette session
+            # Nettoie les SortirUsage pending pour cette session
             # On identifie par IP + timeframe (5 dernières minutes)
             from datetime import timedelta
             recent_threshold = timezone.now() - timedelta(minutes=5)
 
-            # Supprime les pending récents pour cette IP
-            deleted_count = SortirUsage.objects.filter(
-                event=event,
-                status='pending',
-                order__isnull=True,
-                ip_address=ip_address,
-                created_at__gte=recent_threshold
-            ).delete()[0]  # delete() renvoie (count, dict)
+            # Si un card_number spécifique est fourni, on ne nettoie que celui-là
+            # Sinon on nettoie TOUS les pending de cette IP
+            filter_kwargs = {
+                'event': event,
+                'status': 'pending',
+                'order__isnull': True,
+                'ip_address': ip_address,
+                'created_at__gte': recent_threshold
+            }
 
-            logger.info(f"[Sortir] Nettoyage session {session_id}: {deleted_count} SortirUsage pending supprimés pour IP {ip_address}")
+            if card_number:
+                filter_kwargs['card_number'] = card_number
+
+            deleted_count = SortirUsage.objects.filter(**filter_kwargs).delete()[0]  # delete() renvoie (count, dict)
+
+            if card_number:
+                logger.info(f"[Sortir] Nettoyage session {session_id}: carte {card_number} supprimée pour IP {ip_address}")
+            else:
+                logger.info(f"[Sortir] Nettoyage session {session_id}: {deleted_count} SortirUsage pending supprimés pour IP {ip_address}")
 
             # Nettoie aussi les vieux pending (>10 minutes) toutes IPs confondues
             old_threshold = timezone.now() - timedelta(minutes=10)
