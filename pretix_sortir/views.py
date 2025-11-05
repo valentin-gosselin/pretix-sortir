@@ -39,7 +39,7 @@ class SortirOrganizerSettingsView(OrganizerPermissionRequiredMixin, UpdateView):
     def get_object(self, queryset=None):
         obj, created = SortirOrganizerSettings.objects.get_or_create(
             organizer=self.request.organizer,
-            defaults={'api_enabled': False, 'api_mode': 'test'}
+            defaults={'api_enabled': False}
         )
         return obj
 
