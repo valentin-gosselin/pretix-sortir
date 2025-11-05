@@ -1,0 +1,134 @@
+{% extends "pretixpresale/event/checkout_step.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Vérification Sortir!" %}{% endblock %}
+
+{% block content %}
+<h2>{% trans "Vérification carte Sortir!" %}</h2>
+
+<div class="panel panel-primary">
+    <div class="panel-heading">
+        <h3 class="panel-title">{% trans "Articles nécessitant une vérification Sortir!" %}</h3>
+    </div>
+    <div class="panel-body">
+        {% if sortir_items %}
+            <ul class="list-group">
+                {% for item in sortir_items %}
+                <li class="list-group-item">
+                    <strong>{{ item.name }}</strong>
+                    <span class="badge">{{ item.quantity }}x</span>
+                    <div class="text-muted">{{ item.price|floatformat:2 }}€</div>
+                </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>
+
+<div class="panel panel-default">
+    <div class="panel-body">
+        <p>{% trans "Pour bénéficier du tarif Sortir!, veuillez saisir votre numéro de carte KorriGo." %}</p>
+
+        <form method="post" action="">
+            {% csrf_token %}
+            <div class="form-group">
+                {{ form.sortir_card_number.label_tag }}
+                {{ form.sortir_card_number }}
+                {% if form.sortir_card_number.help_text %}
+                    <small class="form-text text-muted">{{ form.sortir_card_number.help_text }}</small>
+                {% endif %}
+                {% if form.sortir_card_number.errors %}
+                    <div class="alert alert-danger">
+                        {{ form.sortir_card_number.errors }}
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="text-right">
+                <button type="submit" class="btn btn-primary">
+                    {% trans "Vérifier et continuer" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const cardInput = document.getElementById('id_sortir-sortir_card_number');
+    const submitBtn = document.querySelector('button[type="submit"]');
+    let validationTimeout;
+
+    if (cardInput) {
+        // Conteneur pour les messages de validation
+        const validationDiv = document.createElement('div');
+        validationDiv.id = 'sortir-validation-message';
+        cardInput.parentNode.appendChild(validationDiv);
+
+        cardInput.addEventListener('input', function() {
+            // Nettoie l'input (seulement chiffres)
+            const cleanValue = this.value.replace(/[^0-9]/g, '');
+            this.value = cleanValue;
+
+            // Efface le timeout précédent
+            clearTimeout(validationTimeout);
+
+            // Réinitialise l'état
+            validationDiv.innerHTML = '';
+            cardInput.classList.remove('is-valid', 'is-invalid');
+
+            if (cleanValue.length >= 6) {
+                // Affiche un indicateur de chargement
+                validationDiv.innerHTML = '<div class="text-info"><i class="fa fa-spinner fa-spin"></i> Vérification...</div>';
+
+                // Lance la validation après 1 seconde
+                validationTimeout = setTimeout(function() {
+                    validateCard(cleanValue);
+                }, 1000);
+            } else if (cleanValue.length > 0) {
+                validationDiv.innerHTML = '<div class="text-muted">Minimum 6 chiffres requis</div>';
+            }
+        });
+
+        function validateCard(cardNumber) {
+            // URL de validation AJAX
+            const validateUrl = window.location.pathname.replace(/\/checkout.*/, '/sortir/validate/');
+
+            fetch(validateUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: JSON.stringify({ card_number: cardNumber })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.valid) {
+                    cardInput.classList.add('is-valid');
+                    cardInput.classList.remove('is-invalid');
+                    validationDiv.innerHTML = '<div class="text-success"><i class="fa fa-check"></i> ' + data.message + '</div>';
+                    if (submitBtn) submitBtn.disabled = false;
+                } else {
+                    cardInput.classList.add('is-invalid');
+                    cardInput.classList.remove('is-valid');
+                    validationDiv.innerHTML = '<div class="text-danger"><i class="fa fa-times"></i> ' + data.error + '</div>';
+                    if (submitBtn) submitBtn.disabled = true;
+                }
+            })
+            .catch(error => {
+                console.error('Erreur de validation:', error);
+                validationDiv.innerHTML = '<div class="text-warning"><i class="fa fa-exclamation-triangle"></i> Erreur de validation</div>';
+                cardInput.classList.remove('is-valid', 'is-invalid');
+                if (submitBtn) submitBtn.disabled = false;
+            });
+        }
+
+        // Désactive le bouton submit initialement
+        if (submitBtn && !cardInput.value) {
+            submitBtn.disabled = true;
+        }
+    }
+});
+</script>
+{% endblock %}

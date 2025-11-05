@@ -1,0 +1,67 @@
+/* Styles pour le plugin Sortir! */
+
+.sortir-field {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+/* Supprime l'icône ::before de Bootstrap alert */
+.sortir-field::before {
+    display: none !important;
+}
+
+.sortir-field.required {
+    border-color: #dc3545;
+    background: #fff5f5;
+}
+
+.sortir-validation {
+    margin-top: 5px;
+    font-size: 0.875em;
+    font-weight: 500;
+}
+
+.sortir-validation.success {
+    color: #28a745;
+}
+
+.sortir-validation.error {
+    color: #dc3545;
+}
+
+.sortir-validation.loading {
+    color: #17a2b8;
+}
+
+.fa-spinner.fa-spin {
+    animation: fa-spin 1s infinite linear;
+}
+
+@keyframes fa-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(359deg);
+    }
+}
+
+.sortir-card-input:valid {
+    border-color: #28a745;
+}
+
+.sortir-card-input:invalid {
+    border-color: #dc3545;
+}
+
+/* Style pour les bandeaux informatifs */
+.sortir-info-banner {
+    background-color: #e3f2fd;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #2196f3;
+}

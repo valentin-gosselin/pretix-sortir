@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.manifest
+*.spec
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# Pretix specific
+pretix.cfg
+data/
+
+# Documentation
+docs/_build/
+doc/
+doc_sortir/
+CLAUDE.md
+
+# Temporary files
+*.tmp
+.cache/
+
+# Claude AI
+.claude/
+pretix_sortir/static/pretix_sortir/pretix.code-workspace
