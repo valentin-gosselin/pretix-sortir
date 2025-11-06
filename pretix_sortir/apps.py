@@ -17,7 +17,7 @@ class SortirPluginConfig(PluginConfig):
 
         name = _('Sortir! - Tarif réduit')
         author = 'Gosselico'
-        version = '1.0.0'
+        version = '1.0.2'
         category = 'INTEGRATION'
         description = _(
             'Intégration du dispositif Sortir! pour appliquer automatiquement '
@@ -47,6 +47,41 @@ class SortirPluginConfig(PluginConfig):
         from . import navigation  # noqa: F401
 
         super().ready()
+
+        # Auto-collectstatic au démarrage pour s'assurer que les assets sont à jour
+        # Ceci est exécuté une seule fois au démarrage de Pretix
+        import os
+        import logging
+        from django.core.management import call_command
+        from django.core.cache import cache
+
+        logger = logging.getLogger(__name__)
+
+        # Variable d'environnement pour désactiver si besoin (ex: en dev)
+        if os.environ.get('SORTIR_SKIP_AUTOCOLLECT') != '1':
+            try:
+                # Vérifier si on doit faire un collectstatic
+                # On utilise un flag en cache pour éviter de le faire plusieurs fois
+                cache_key = f'sortir_collectstatic_v{self.PretixPluginMeta.version}'
+
+                if not cache.get(cache_key):
+                    logger.info('[Sortir] Running collectstatic for updated assets...')
+                    call_command('collectstatic', '--noinput', verbosity=0)
+
+                    # Vider le cache pour forcer le rechargement des assets
+                    # Seulement les clés liées à sortir pour ne pas impacter tout Pretix
+                    for key in cache.keys('*sortir*'):
+                        cache.delete(key)
+
+                    # Marquer comme fait pour cette version (expire après 24h)
+                    cache.set(cache_key, True, 86400)
+                    logger.info('[Sortir] Collectstatic completed successfully')
+                else:
+                    logger.debug('[Sortir] Collectstatic already done for this version')
+
+            except Exception as e:
+                # Ne pas faire planter Pretix si le collectstatic échoue
+                logger.warning(f'[Sortir] Could not run collectstatic: {e}')
 
 
 default_app_config = 'pretix_sortir.SortirPluginConfig'

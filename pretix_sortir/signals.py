@@ -77,16 +77,18 @@ def check_sortir_required(sender, positions, **kwargs):
 def add_sortir_html_head(sender, request=None, **kwargs):
     """Ajoute le CSS et JavaScript pour Sortir! dans le <head>"""
 
-    # Vérifie si Sortir est activé pour cet événement
-    if not hasattr(request, 'event'):
+    # sender = l'événement
+    if not hasattr(request, 'event') or not request.event:
         return ""
 
+    # Vérifie si Sortir est activé pour cet événement
     try:
         event_settings = SortirEventSettings.objects.get(
             event=request.event,
             enabled=True
         )
     except SortirEventSettings.DoesNotExist:
+        # Plugin pas activé pour cet événement
         return ""
 
     # Récupère les items qui nécessitent Sortir
@@ -104,19 +106,25 @@ def add_sortir_html_head(sender, request=None, **kwargs):
             'name': str(config.item.name) + (f" - {config.variation.value}" if config.variation else "")
         }
 
+    # Si aucun item configuré avec Sortir, pas besoin de charger le JS
+    if not sortir_items:
+        return ""
+
     from django.templatetags.static import static
+    import time
+
+    # Cache buster pour forcer le rechargement du JS/CSS (comme Pretix le fait pour les thèmes)
+    sortir_version = request.event.cache.get_or_set("sortir_version", default=lambda: int(time.time()))
 
     return mark_safe(f"""
-<link rel="stylesheet" type="text/css" href="{static('pretix_sortir/sortir.css')}">
-<script src="{static('pretix_sortir/sortir.js')}" data-sortir-config='{json.dumps(sortir_items)}'></script>
+<link rel="stylesheet" type="text/css" href="{static('pretix_sortir/sortir.css')}?v={sortir_version}">
+<script src="{static('pretix_sortir/sortir.js')}?v={sortir_version}" data-sortir-config='{json.dumps(sortir_items)}'></script>
 """)
 
 
 @receiver(item_description, dispatch_uid='sortir_item_description')
 def add_sortir_item_description(sender, item=None, variation=None, **kwargs):
     """Ajoute une indication dans la description de l'item s'il nécessite Sortir"""
-
-    logger.info(f"Signal item_description reçu pour {item.name}")
 
     # Vérifie si Sortir est activé pour cet événement
     try:

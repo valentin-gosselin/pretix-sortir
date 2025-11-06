@@ -153,14 +153,37 @@ document.addEventListener('DOMContentLoaded', function() {
             quantityInput = document.querySelector('input[name="item_' + itemId + '"]');
         }
 
-        // Stratégie 3: select
+        // Stratégie 3: select par name
         if (!quantityInput) {
             quantityInput = document.querySelector('select[name="item_' + itemId + '"]');
         }
 
-        // Stratégie 4: Avec variation
+        // Stratégie 4: Avec variation par ID
         if (!quantityInput && config.variation_id) {
             quantityInput = document.getElementById('item_' + itemId + '_' + config.variation_id);
+        }
+
+        // Stratégie 5: Avec variation par name (input ou select)
+        if (!quantityInput && config.variation_id) {
+            quantityInput = document.querySelector('input[name="variation_' + itemId + '_' + config.variation_id + '"], select[name="variation_' + itemId + '_' + config.variation_id + '"]');
+        }
+
+        // Stratégie 6: Recherche plus large avec data-item-id
+        if (!quantityInput) {
+            quantityInput = document.querySelector('[data-item-id="' + itemId + '"] input[type="number"], [data-item-id="' + itemId + '"] select');
+        }
+
+        // Stratégie 7: Recherche par proximité du nom de l'item
+        if (!quantityInput && config.name) {
+            var itemNameElements = Array.from(document.querySelectorAll('*')).filter(function(el) {
+                return el.textContent && el.textContent.includes(config.name);
+            });
+            for (var i = 0; i < itemNameElements.length && !quantityInput; i++) {
+                var nearbyInput = itemNameElements[i].parentElement.querySelector('input[type="number"], select');
+                if (nearbyInput) {
+                    quantityInput = nearbyInput;
+                }
+            }
         }
 
         if (quantityInput) {
