@@ -17,7 +17,7 @@ class SortirPluginConfig(PluginConfig):
 
         name = _('Sortir! - Tarif réduit')
         author = 'Gosselico'
-        version = '1.0.2'
+        version = '1.0.3'
         category = 'INTEGRATION'
         description = _(
             'Intégration du dispositif Sortir! pour appliquer automatiquement '
@@ -47,6 +47,9 @@ class SortirPluginConfig(PluginConfig):
         from . import navigation  # noqa: F401
 
         super().ready()
+
+        # Auto-activation de l'API si le plugin est installé
+        self._auto_enable_api()
 
         # Auto-collectstatic au démarrage pour s'assurer que les assets sont à jour
         # Ceci est exécuté une seule fois au démarrage de Pretix
@@ -82,6 +85,35 @@ class SortirPluginConfig(PluginConfig):
             except Exception as e:
                 # Ne pas faire planter Pretix si le collectstatic échoue
                 logger.warning(f'[Sortir] Could not run collectstatic: {e}')
+
+    def _auto_enable_api(self):
+        """Active automatiquement l'API pour les organisateurs qui ont le plugin."""
+        try:
+            from django.db import connection
+            from .models import SortirOrganizerSettings
+
+            # Vérifier que les tables existent
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_name = 'pretix_sortir_sortirorganizersettings'
+                    );
+                """)
+                if not cursor.fetchone()[0]:
+                    return  # Table n'existe pas encore
+
+            # Activer l'API pour tous les organisateurs qui ont le plugin mais API désactivée
+            updated = SortirOrganizerSettings.objects.filter(api_enabled=False).update(api_enabled=True)
+
+            if updated > 0:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f'[Sortir] API automatiquement activée pour {updated} organisateur(s)')
+
+        except Exception:
+            # Silencieusement ignorer les erreurs (peut arriver pendant les migrations)
+            pass
 
 
 default_app_config = 'pretix_sortir.SortirPluginConfig'

@@ -4,6 +4,7 @@ Champs de base de données chiffrés pour le plugin Sortir!
 
 import os
 import logging
+from pathlib import Path
 from django.db import models
 from django.conf import settings
 from cryptography.fernet import Fernet, InvalidToken
@@ -13,23 +14,60 @@ logger = logging.getLogger('pretix.plugins.sortir')
 
 def get_encryption_key():
     """
-    Récupère la clé de chiffrement depuis les settings ou les variables d'environnement.
-    La clé doit être définie dans SORTIR_ENCRYPTION_KEY.
+    Récupère ou génère automatiquement une clé de chiffrement.
+    La clé est stockée dans un fichier dans le datadir de Pretix pour persistance.
     """
-    # Essaie d'abord les settings Django
+    # Essaie d'abord les variables d'environnement (pour compatibilité)
+    key = os.environ.get('SORTIR_ENCRYPTION_KEY')
+
+    if key:
+        logger.debug("[Sortir] Utilisation de la clé depuis variable d'environnement")
+        return key.encode() if isinstance(key, str) else key
+
+    # Essaie les settings Django
     key = getattr(settings, 'SORTIR_ENCRYPTION_KEY', None)
 
-    # Sinon, essaie les variables d'environnement
-    if not key:
-        key = os.environ.get('SORTIR_ENCRYPTION_KEY')
+    if key:
+        logger.debug("[Sortir] Utilisation de la clé depuis settings Django")
+        return key.encode() if isinstance(key, str) else key
 
-    if not key:
-        raise ValueError(
-            "SORTIR_ENCRYPTION_KEY n'est pas définie. "
-            "Ajoutez-la dans vos variables d'environnement ou dans pretix.cfg. "
-            "Générez une clé avec: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
-        )
-    return key.encode() if isinstance(key, str) else key
+    # Sinon, utilise un fichier de clé persistant dans le datadir
+    data_dir = getattr(settings, 'DATA_DIR', '/data')
+    key_file = Path(data_dir) / '.sortir_encryption_key'
+
+    try:
+        if key_file.exists():
+            with open(key_file, 'r') as f:
+                key = f.read().strip()
+                logger.debug(f"[Sortir] Clé de chiffrement chargée depuis {key_file}")
+                return key.encode() if isinstance(key, str) else key
+        else:
+            # Génère une nouvelle clé
+            new_key = Fernet.generate_key()
+
+            # Crée le répertoire si nécessaire
+            key_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Sauvegarde la clé
+            with open(key_file, 'wb') as f:
+                f.write(new_key)
+
+            # Change les permissions pour sécuriser le fichier
+            try:
+                os.chmod(key_file, 0o600)
+            except:
+                pass  # Peut échouer sur certains systèmes
+
+            logger.info(f"[Sortir] Nouvelle clé de chiffrement générée et sauvegardée dans {key_file}")
+            logger.warning("[Sortir] IMPORTANT: Sauvegardez cette clé pour les migrations/restaurations!")
+
+            return new_key
+
+    except (IOError, OSError) as e:
+        logger.error(f"[Sortir] Erreur lors de la gestion du fichier de clé: {e}")
+        # En dernier recours, génère une clé temporaire (non persistante)
+        logger.warning("[Sortir] Utilisation d'une clé temporaire - Les données chiffrées ne seront pas persistantes!")
+        return Fernet.generate_key()
 
 
 class EncryptedTextField(models.TextField):
@@ -69,18 +107,19 @@ class EncryptedTextField(models.TextField):
                 decrypted = self.fernet.decrypt(value.encode()).decode('utf-8')
                 return decrypted
             except InvalidToken:
-                logger.error(
-                    "Impossible de déchiffrer le token - La clé de chiffrement a peut-être changé"
+                logger.warning(
+                    "[Sortir] Token impossible à déchiffrer (clé incorrecte). "
+                    "Retour d'une valeur vide - veuillez re-saisir le token dans l'interface."
                 )
-                raise ValueError("Token invalide - Impossible de déchiffrer")
+                return ""  # Retourne une chaîne vide au lieu de lever une exception
             except Exception as e:
-                logger.error(f"Erreur lors du déchiffrement: {e}")
-                raise
+                logger.error(f"[Sortir] Erreur lors du déchiffrement: {e}")
+                return ""  # Retourne une chaîne vide en cas d'erreur
         else:
             # Token en clair (anciennes données) - retourner tel quel
             # À la prochaine sauvegarde, il sera automatiquement chiffré
-            logger.warning(
-                "Token en clair détecté - Il sera chiffré lors de la prochaine sauvegarde"
+            logger.debug(
+                "[Sortir] Token en clair détecté - Il sera chiffré lors de la prochaine sauvegarde"
             )
             return value
 

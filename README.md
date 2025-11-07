@@ -182,6 +182,24 @@ Une fois toutes les cartes validées, l'acheteur peut procéder au paiement norm
 
 ## Sécurité et RGPD
 
+### Clé de chiffrement
+
+Le plugin chiffre automatiquement les tokens API pour la sécurité. La gestion de la clé est **entièrement automatique** :
+
+1. **Génération automatique** : À la première utilisation, le plugin génère automatiquement une clé de chiffrement
+2. **Stockage sécurisé** : La clé est sauvegardée dans `/data/.sortir_encryption_key` avec permissions restrictives
+3. **Priorité de chargement** :
+   - D'abord : Variable d'environnement `SORTIR_ENCRYPTION_KEY` (si définie)
+   - Ensuite : Fichier de clé dans le datadir
+   - Sinon : Génération automatique d'une nouvelle clé
+
+⚠️ **Important pour les migrations/restaurations** :
+- Sauvegardez le fichier `.sortir_encryption_key` avec vos backups
+- Si vous changez la clé, les tokens devront être re-saisis dans l'interface
+- Pour définir une clé spécifique : `export SORTIR_ENCRYPTION_KEY=votre-clé-ici`
+
+### Protection des données
+
 ### Stockage des données
 
 | Donnée | Méthode de stockage |
